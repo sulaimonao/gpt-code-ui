@@ -8,6 +8,7 @@ import logging
 import sys
 import openai
 import pandas as pd
+import google.generativeai as genai
 
 from collections import deque
 
@@ -19,6 +20,19 @@ from gpt_code_ui.kernel_program.main import APP_PORT as KERNEL_APP_PORT
 
 load_dotenv('.env')
 
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel(
+        model_name="gemini-1.5-pro",
+        generation_config={
+            "model": "gemini",
+            "temperature": 0.7,  # Adjust for creativity (0 = deterministic, 1 = highly random)
+            "max_output_tokens": 1024,  # Control response length 
+            "top_p": 0.9,  # Nucleus sampling for diversity
+            "top_k": 40,   # Consider top k most likely tokens
+            "stop_sequences": ["User:", "\n\n"],  # Stop generation on these sequences
+            "repetition_penalty": 1.1,  # Penalize repeated tokens
+            }
+)
 openai.api_version = os.environ.get("OPENAI_API_VERSION")
 openai.log = os.getenv("OPENAI_API_LOGLEVEL")
 OPENAI_EXTRA_HEADERS = json.loads(os.environ.get("OPENAI_EXTRA_HEADERS", "{}"))
@@ -235,10 +249,12 @@ def download_file():
 
 @app.route('/inject-context', methods=['POST'])
 def inject_context():
+    file_path = request.json.get('filePath', '')
     user_prompt = request.json.get('prompt', '')
 
     # Append all messages to the message buffer for later use
     message_buffer.append(user_prompt + "\n\n")
+    message_buffer.append(file_content + "\n\n")
 
     return jsonify({"result": "success"})
 
@@ -247,19 +263,39 @@ def inject_context():
 def generate_code():
     user_prompt = request.json.get('prompt', '')
     user_openai_key = request.json.get('openAIKey', None)
+    # Keep this for OpenAI usage
     model = request.json.get('model', None)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    code, text, status = loop.run_until_complete(
-        get_code(user_prompt, user_openai_key, model))
-    loop.close()
+    if model == "Gemini":
+        # Using Gemini
+        chat_session = gemini_model.start_chat()
+        response = chat_session.send_message(user_prompt)
+        code, text, status = response.text, response.text, 200
+    else:
+        # Using OpenAI (Existing Code)
+        code, text, status = loop.run_until_complete(
+            get_code(user_prompt, user_openai_key, model))
+        loop.close()
 
     # Append all messages to the message buffer for later use
     message_buffer.append(user_prompt + "\n\n")
 
     return jsonify({'code': code, 'text': text}), status
+
+@app.route('/analyze_code', methods=['POST'])
+def analyze_code():
+    code_snippet = request.json.get('code', '')
+    
+    # Analyze with Gemini
+    chat_session = gemini_model.start_chat(history=[
+        {"role": "user", "content": "Analyze the following code and provide suggestions for improvements:\n`\n" + code_snippet + "\n`"}
+    ])
+    response = chat_session.send_message("Analyze the provided code.")
+
+    return jsonify({'analysis': response.text}), 200
 
 
 @app.route('/upload', methods=['POST'])
@@ -275,10 +311,17 @@ def upload_file():
     if file and allowed_file(file.filename):
         file_target = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
         file.save(file_target)
-        file_info = inspect_file(file_target)
+        with open(file_target, 'r') as file:
+            file_content = file.read()  # Read the file content here
+        chat_session = gemini_model.start_chat(history=[
+            {"role": "user", "content": "Analyze the following code and provide suggestions for improvements:\n`\n" + file_content + "\n`"}
+        ])
+        response = chat_session.send_message("Analyze the provided code.")
+        file_info = response.text  # Store the response for later reference
         return jsonify({'message': f'File {file.filename} uploaded successfully.\n{file_info}'}), 200
     else:
         return jsonify({'error': 'File type not allowed'}), 400
+
 
 
 if __name__ == '__main__':
