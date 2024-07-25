@@ -1,16 +1,22 @@
-import { useRef, useState } from "react";
-
+import { useRef, useState, useContext } from "react";
 import FileUploadIcon from "@mui/icons-material/FileUpload";
 import SendIcon from "@mui/icons-material/Send";
 import TextareaAutosize from "react-textarea-autosize";
+import   
+ { APIContext } from "../App";
 import Config from "../config";
 import "./Input.css";
 
-export default function Input(props: { onSendMessage: any, onStartUpload: any, onCompletedUpload: any }) {
-
+export default function Input(props: {
+  onSendMessage: (userInput: string, selectedAPI: string) => void;
+  onStartUpload: any;
+  onCompletedUpload: any;
+}) {
   let fileInputRef = useRef<HTMLInputElement>(null);
   let [inputIsFocused, setInputIsFocused] = useState<boolean>(false);
   let [userInput, setUserInput] = useState<string>("");
+
+  const selectedAPI = useContext(APIContext);
 
   const handleInputFocus = () => {
     setInputIsFocused(true);
@@ -57,10 +63,11 @@ export default function Input(props: { onSendMessage: any, onStartUpload: any, o
   };
   
 
+  // COMBINED HANDLESENDMESSAGE
   const handleSendMessage = async () => {
-    props.onSendMessage(userInput);
+    props.onSendMessage(userInput, selectedAPI);
     setUserInput("");
-  }
+  };
 
   const handleInputChange = (e: any) => {
     setUserInput(e.target.value);
