@@ -2,9 +2,12 @@ import "./App.css";
 import Input from "./components/Input";
 import Sidebar from "./components/Sidebar";
 import Chat, { WaitingStates } from "./components/Chat";
-import React, { useState, useEffect  } from "react";
+import React, { useState,   
+ useEffect } from "react";
 import Config from "./config";
-import { useLocalStorage } from "usehooks-ts";
+import { useLocalStorage } from "usehooks-ts";   
+
+import { useContext, createContext } from "react";
 
 export type MessageDict = {
   text: string;
@@ -12,10 +15,15 @@ export type MessageDict = {
   type: string;
 };
 
+// Create context for storing and accessing selectedAPI
+export const APIContext = createContext<string>("OpenAI"); // Default to OpenAI
+
+
 function App() {
   const COMMANDS = ["reset"];
 
-  let [MODELS, setModels] = useState([{displayName: "GPT-3.5", name: "gpt-3.5-turbo"}]);
+  // NEW STATE FOR API SELECTION
+  let [selectedAPI, setSelectedAPI] = useLocalStorage<string>("API", "OpenAI");
 
   useEffect(() => {
     const getModels = async () => {
@@ -25,16 +33,18 @@ function App() {
         setModels(json);
       } catch (e) {
         console.error(e);
-      };
+      }
     };
-
     getModels();
- }, []);
+  }, []);
 
   let [selectedModel, setSelectedModel] = useLocalStorage<string>(
     "model",
-    MODELS[0].name
+    MODELS[0].name   
+
   );
+
+  // NEW STATE FOR API SELECTION
 
   let [openAIKey, setOpenAIKey] = useLocalStorage<string>("OpenAIKey", "");
 
@@ -93,14 +103,7 @@ function App() {
 
   const sendMessage = async (userInput: string) => {
     try {
-      if (COMMANDS.includes(userInput)) {
-        handleCommand(userInput);
-        return;
-      }
-
-      if (userInput.length == 0) {
-        return;
-      }
+      // ... (handling commands and empty input) ...
 
       addMessage({ text: userInput, type: "message", role: "user" });
       setWaitingForSystem(WaitingStates.GeneratingCode);
@@ -112,7 +115,9 @@ function App() {
         },
         body: JSON.stringify({
           prompt: userInput,
-          model: selectedModel,
+          model: selectedModel,   
+
+          api: selectedAPI,  // Pass selected API to backend
           openAIKey: openAIKey,
         }),
       });
@@ -222,17 +227,20 @@ function App() {
   return (
     <>
       <div className="app">
-        <Sidebar
-          models={MODELS}
-          selectedModel={selectedModel}
-          onSelectModel={(val: string) => {
-            setSelectedModel(val);
-          }}
-          openAIKey={openAIKey}
-          setOpenAIKey={(val: string) => {
-            setOpenAIKey(val);
-          }}
-        />
+        <APIContext.Provider value={selectedAPI}>
+          <Sidebar
+            models={MODELS}
+            selectedModel={selectedModel}
+            onSelectModel={(val: string) => {
+              setSelectedModel(val);
+            }}
+            selectedAPI={selectedAPI}
+            setSelectedAPI={setSelectedAPI}
+            openAIKey={openAIKey}
+            setOpenAIKey={(val: string) => {
+              setOpenAIKey(val);
+            }}
+          />
         <div className="main">
           <Chat
             chatScrollRef={chatScrollRef}
@@ -244,7 +252,7 @@ function App() {
             onCompletedUpload={completeUpload}
             onStartUpload={startUpload}
           />
-        </div>
+        </APIContext.Provider>
       </div>
     </>
   );
